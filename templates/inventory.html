@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Nexus Inventory Manager</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; margin: 0; background: #f4f4f4; }
+        
+        /* Sidebar */
+        .sidebar { width: 300px; background: white; border-right: 1px solid #ddd; overflow-y: auto; padding: 20px; }
+        .menu-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .menu-item:hover { background: #f0f8ff; }
+        .menu-item.active { background: #007bff; color: white; font-weight: bold; }
+        .category-title { font-size: 0.85em; color: #888; margin-top: 15px; text-transform: uppercase; font-weight: bold; }
+
+        /* Main Content */
+        .main { flex-grow: 1; padding: 30px; overflow-y: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        
+        /* Recipe Cards */
+        .recipe-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .section-title { font-size: 1.2em; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #333; }
+        
+        .ingredient-row { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px dashed #eee; }
+        .ingredient-row select, .ingredient-row input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 10px; }
+        .btn-save { background: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+        .btn-add-new { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        
+        .hint { font-size: 0.9em; color: #666; background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h3>🍔 Menu Items</h3>
+        <div id="menu-list">Loading...</div>
+        <br>
+        <button class="btn-add-new" onclick="showAddIngredientModal()" style="width:100%">+ New Raw Ingredient</button>
+    </div>
+
+    <div class="main">
+        <div id="editor-area" style="display:none;">
+            <div class="header">
+                <h1 id="selected-item-name">Select an Item</h1>
+            </div>
+
+            <div class="hint">
+                💡 <b>Tip:</b> If an ingredient is used in EVERY version of this item (like Tomato Sauce for Pizza), add it to <b>Base Recipe</b>.<br>
+                If it depends on size (like Dough or Cheese), add it to the <b>Variants</b> below.
+            </div>
+
+            <div class="recipe-section">
+                <div class="section-title">Base Recipe (Common Ingredients)</div>
+                <div id="base-recipe-list"></div>
+                <div class="ingredient-row">
+                    <select id="base-ing-select"><option>Select Ingredient...</option></select>
+                    <input type="number" id="base-ing-qty" placeholder="Qty" style="width:80px">
+                    <span id="base-ing-unit" style="margin-right:10px; width:40px; color:#888">-</span>
+                    <button class="btn-save" onclick="addBaseRecipe()">Add</button>
+                </div>
+            </div>
+
+            <div id="variants-container"></div>
+
+        </div>
+        <div id="empty-state" style="text-align:center; margin-top:100px; color:#aaa;">
+            <h2>Select a Menu Item to manage its Recipe</h2>
+        </div>
+    </div>
+
+    <script>
+        const RESTAURANT_ID = "aa5e8652-7e8a-4a19-8497-54d56221ecee"; // PASTE YOUR UUID HERE
+        let allIngredients = [];
+        let currentItem = null;
+
+        // 1. Load Data
+        async function loadData() {
+            const res = await fetch(`/api/inventory/data/${RESTAURANT_ID}/`);
+            const data = await res.json();
+            allIngredients = data.ingredients;
+            renderMenu(data.menu);
+            populateIngredientSelects();
+        }
+
+        // 2. Render Sidebar
+        function renderMenu(categories) {
+            const list = document.getElementById('menu-list');
+            list.innerHTML = ''; // Clear only once at the start
+            
+            categories.forEach(cat => {
+                // 1. Create Category Title
+                const catTitle = document.createElement('div');
+                catTitle.className = 'category-title';
+                catTitle.innerText = cat.name;
+                list.appendChild(catTitle);
+
+                // 2. Create Items
+                cat.menu_items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'menu-item';
+                    div.innerText = item.name;
+                    div.onclick = () => selectItem(item, div); // Listener is now safe
+                    list.appendChild(div);
+                });
+            });
+        }
+
+        // 3. Select Item Logic
+        function selectItem(item, element) {
+            currentItem = item;
+            
+            // UI Highlights
+            document.querySelectorAll('.menu-item').forEach(e => e.classList.remove('active'));
+            element.classList.add('active');
+            
+            document.getElementById('empty-state').style.display = 'none';
+            document.getElementById('editor-area').style.display = 'block';
+            document.getElementById('selected-item-name').innerText = item.name;
+
+            // Render Base Recipes
+            renderRecipeList('base-recipe-list', item.recipes, 'menu_item_id', item.id);
+
+            // Render Variant Groups
+            const container = document.getElementById('variants-container');
+            container.innerHTML = '';
+            
+            item.variant_groups.forEach(group => {
+                let html = `<div class="recipe-section">
+                    <div class="section-title">Variant Group: ${group.name}</div>`;
+                
+                group.options.forEach(opt => {
+                    html += `<div style="margin-left:20px; margin-bottom:15px; border-left: 3px solid #007bff; padding-left: 10px;">
+                        <strong>${opt.name}</strong>
+                        <div id="var-list-${opt.id}"></div>
+                        <div class="ingredient-row">
+                            <select id="select-var-${opt.id}" class="ing-selector"><option>Select Ingredient...</option></select>
+                            <input type="number" id="qty-var-${opt.id}" placeholder="Qty" style="width:80px">
+                            <button class="btn-save" onclick="addVariantRecipe(${opt.id})">Add</button>
+                        </div>
+                    </div>`;
+                });
+                html += `</div>`;
+                container.innerHTML += html;
+
+                // Post-render: Populate lists and selects
+                group.options.forEach(opt => {
+                    renderRecipeList(`var-list-${opt.id}`, opt.recipes, 'variant_id', opt.id);
+                    populateSelect(`select-var-${opt.id}`);
+                });
+            });
+        }
+
+        // 4. Render a List of Recipes (with Delete/Update capability)
+        function renderRecipeList(elementId, recipes, idType, idValue) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = '';
+            recipes.forEach(r => {
+                container.innerHTML += `
+                    <div class="ingredient-row">
+                        <span style="flex-grow:1"><b>${r.ingredient_name}</b>: ${r.quantity_required} ${r.ingredient_unit}</span>
+                        <button onclick="saveRecipe('${idType}', '${idValue}', ${r.ingredient}, 0)" style="background:#ff4444; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">Remove</button>
+                    </div>`;
+            });
+        }
+
+        // 5. Save Logic
+        async function saveRecipe(idType, idValue, ingredientId, qty) {
+            await fetch('/api/inventory/save/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    [idType]: idValue,
+                    ingredient_id: ingredientId,
+                    qty: qty
+                })
+            });
+            // Reload data to refresh UI (Simple but effective)
+            loadData().then(() => {
+                // Re-select current item to update view
+                // (In a real app, we'd update state locally, but this is safer for now)
+                if(currentItem) {
+                    // Finding the item in the fresh data is hard without complex state mgmt, 
+                    // so we might just alert "Saved". 
+                    // For this simple version, let's just alert.
+                    alert("Saved! Please re-select the item to see changes.");
+                    location.reload(); 
+                }
+            });
+        }
+
+        function addBaseRecipe() {
+            const ingId = document.getElementById('base-ing-select').value;
+            const qty = document.getElementById('base-ing-qty').value;
+            if(!ingId || !qty) return alert("Fill all fields");
+            saveRecipe('menu_item_id', currentItem.id, ingId, qty);
+        }
+
+        function addVariantRecipe(variantId) {
+            const ingId = document.getElementById(`select-var-${variantId}`).value;
+            const qty = document.getElementById(`qty-var-${variantId}`).value;
+            if(!ingId || !qty) return alert("Fill all fields");
+            saveRecipe('variant_id', variantId, ingId, qty);
+        }
+
+        // Helpers
+        function populateIngredientSelects() {
+            populateSelect('base-ing-select');
+        }
+        function populateSelect(id) {
+            const sel = document.getElementById(id);
+            if(!sel) return;
+            sel.innerHTML = '<option value="">Select Ingredient...</option>';
+            allIngredients.forEach(ing => {
+                sel.innerHTML += `<option value="${ing.id}">${ing.name} (${ing.unit})</option>`;
+            });
+        }
+
+        function showAddIngredientModal() {
+            const name = prompt("Ingredient Name (e.g., Flour):");
+            if(!name) return;
+            const unit = prompt("Unit (e.g., grams):");
+            const stock = prompt("Current Stock:");
+            
+            fetch('/api/inventory/ingredient/add/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name, unit, stock, restaurant_id: RESTAURANT_ID })
+            }).then(() => {
+                loadData();
+                alert("Added!");
+            });
+        }
+
+        loadData();
+    </script>
+</body>
+</html>

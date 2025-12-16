@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus CEO Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> </head>
+<body class="bg-gray-900 text-white font-sans p-6">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+            🚀 Nexus Command Center
+        </h1>
+        <p class="text-gray-400 mb-8">Real-time Performance Metrics</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h3 class="text-gray-400 text-sm font-semibold uppercase">Revenue Today</h3>
+                <p class="text-4xl font-bold text-green-400 mt-2" id="revenue">₹0.00</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h3 class="text-gray-400 text-sm font-semibold uppercase">Total Orders</h3>
+                <p class="text-4xl font-bold text-blue-400 mt-2" id="orders">0</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700">
+                <h3 class="text-gray-400 text-sm font-semibold uppercase">Avg Kitchen Time</h3>
+                <p class="text-4xl font-bold text-yellow-400 mt-2" id="kitchen-time">--</p>
+                <p class="text-xs text-gray-500 mt-1">Target: < 15 mins</p>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-2xl shadow-lg border border-gray-700 overflow-hidden">
+            <div class="p-6 border-b border-gray-700 flex justify-between items-center">
+                <h3 class="text-xl font-bold text-white">🏆 Menu Profitability (Top 5 Items)</h3>
+                <button onclick="loadData()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-bold">Refresh Data</button>
+            </div>
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-gray-900 text-gray-400 text-sm uppercase">
+                        <th class="p-4">Item Name</th>
+                        <th class="p-4">Selling Price</th>
+                        <th class="p-4">Food Cost</th>
+                        <th class="p-4">Profit Margin</th>
+                    </tr>
+                </thead>
+                <tbody id="profit-table" class="text-gray-300">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const RESTAURANT_ID = "aa5e8652-7e8a-4a19-8497-54d56221ecee"; // Replace with yours
+
+        async function loadData() {
+            try {
+                const res = await fetch(`/api/analytics/data/${RESTAURANT_ID}/`);
+                const data = await res.json();
+
+                // 1. Update KPIs
+                document.getElementById('revenue').innerText = "₹" + parseFloat(data.revenue_today).toFixed(2);
+                document.getElementById('orders').innerText = data.orders_count;
+                document.getElementById('kitchen-time').innerText = data.avg_kitchen_time;
+
+                // 2. Update Profit Table
+                const tableBody = document.getElementById('profit-table');
+                tableBody.innerHTML = "";
+                
+                data.top_profitable_items.forEach(item => {
+                    // Color code the margin
+                    const marginVal = parseFloat(item.profit_margin);
+                    let color = "text-green-400";
+                    if(marginVal < 40) color = "text-yellow-400";
+                    if(marginVal < 20) color = "text-red-400";
+
+                    const row = `
+                        <tr class="border-b border-gray-700 hover:bg-gray-700 transition">
+                            <td class="p-4 font-bold text-white">${item.name}</td>
+                            <td class="p-4">₹${item.price}</td>
+                            <td class="p-4">₹${item.cost}</td>
+                            <td class="p-4 font-bold ${color}">${item.profit_margin}</td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+
+            } catch (err) {
+                console.error("Error loading analytics:", err);
+            }
+        }
+
+        // Load on start
+        loadData();
+    </script>
+</body>
+</html>

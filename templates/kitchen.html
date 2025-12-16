@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Kitchen View</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #222; color: white; margin: 0; padding: 20px; }
+        h1 { color: #4CAF50; border-bottom: 2px solid #444; padding-bottom: 10px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        
+        /* The Order Card */
+        .ticket { 
+            background-color: #333; 
+            border-radius: 10px; 
+            overflow: hidden; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-left: 5px solid #FFD700; /* Yellow for New */
+        }
+        
+        .header { background-color: #444; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .table-no { font-size: 1.5em; font-weight: bold; color: #FFA500; }
+        .timer { font-size: 0.9em; color: #aaa; }
+
+        .items { padding: 15px; }
+        .item { border-bottom: 1px solid #444; padding: 8px 0; font-size: 1.1em; }
+        .item:last-child { border-bottom: none; }
+
+        .actions { padding: 15px; background-color: #2a2a2a; text-align: right; }
+        .btn-done { background-color: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; }
+        .btn-done:hover { background-color: #45a049; }
+
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <h1>👨‍🍳 Kitchen Display System (Live)</h1>
+    <div id="order-grid" class="grid">
+        <div style="color:#777; padding:20px; font-style:italic;">Waiting for orders...</div>
+    </div>
+
+    <script>
+    // 1. Load Existing Orders on Page Load
+    async function loadInitialOrders() {
+        try {
+            const response = await fetch('/api/kitchen/orders/');
+            const orders = await response.json();
+            
+            const grid = document.getElementById('order-grid');
+            grid.innerHTML = ''; // Clear "Waiting..." placeholder
+            
+            orders.forEach(order => {
+                addOrderCard(order); // Reuse the same card creator
+            });
+        } catch (error) {
+            console.error("Failed to load existing orders:", error);
+        }
+    }
+
+    // 2. Listen for NEW Orders (Real-Time)
+    const socket = new WebSocket('ws://' + window.location.host + '/ws/kitchen/');
+
+    socket.onopen = function(e) {
+        console.log("✅ Connected to Real-Time Kitchen");
+    };
+
+    socket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        console.log("New Order:", data);
+        playSound();
+        addOrderCard(data);
+    };
+
+    socket.onclose = function(e) {
+        console.error("❌ WebSocket closed unexpectedly");
+    };
+
+    // 3. Shared Function to Render Cards
+    function addOrderCard(order) {
+        // Prevent duplicates (in case of re-connection)
+        if (document.getElementById(`order-card-${order.id}`)) return;
+
+        const container = document.getElementById('order-grid');
+        
+        let itemsHtml = '';
+        order.items.forEach(item => {
+            // Handle both structure formats (API uses object, Socket uses string)
+            const itemName = typeof item === 'string' ? item : `${item.quantity} x ${item.menu_item_name}`;
+            const variants = item.variants ? `<div style="font-size:0.8em; color:#aaa; margin-left:10px;">↳ ${item.variants}</div>` : '';
+            itemsHtml += `<div class="item">${itemName}${variants}</div>`;
+        });
+
+        const html = `
+            <div id="order-card-${order.id}" class="ticket" style="border-left: 5px solid #FFD700;">
+                <div class="header">
+                    <div>
+                        <span class="table-no">Table ${order.table || order.table_name}</span>
+                        <div style="font-size:0.8em; color:#888">${order.waiter_name || 'Server'}</div>
+                    </div>
+                    <span class="timer">#${order.id}</span>
+                </div>
+                <div class="items">${itemsHtml}</div>
+                <div class="actions">
+                    <button class="btn-done" onclick="markReady(${order.id})">✅ MARK READY</button>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('afterbegin', html);
+    }
+
+    function markReady(orderId) {
+        fetch(`/api/orders/${orderId}/complete/`, { method: 'POST' })
+            .then(() => {
+                // Remove card from UI immediately
+                const card = document.getElementById(`order-card-${orderId}`);
+                if(card) card.remove();
+            });
+    }
+
+    function playSound() {
+        const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+        audio.play().catch(e => console.log("Audio blocked - click page to enable"));
+    }
+
+    // Start!
+    loadInitialOrders();
+</script>
+</body>
+</html>

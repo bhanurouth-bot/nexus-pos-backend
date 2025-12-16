@@ -1,0 +1,7 @@
+Inventory: http://127.0.0.1:8000/inventory/
+
+Kitchen: http://127.0.0.1:8000/kitchen-display/
+
+Cashier: http://127.0.0.1:8000/cashier-display/
+
+http://127.0.0.1:8000/analytics/
